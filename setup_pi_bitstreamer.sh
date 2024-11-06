@@ -24,6 +24,12 @@ sudo apt install -y pkg-config
 sudo apt install -y make
 sudo apt install -y g++
 
+sudo apt install -y iptables
+sudo apt install -y iptables-persistent
+
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5173
+sudo sh -c "iptables-save > /etc/iptables/rules.v4"
+
 git clone https://github.com/trabucayre/openFPGALoader.git
 cd openFPGALoader
 mkdir build
