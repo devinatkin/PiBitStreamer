@@ -1,0 +1,23 @@
+{
+  "name": "pibitstreamer",
+  "version": "1.0.0",
+  "description": "Connect a raspberry pi to 4 FPGAs and allow for remote bitstream programming.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "concurrently \"node src/app.js\" \"vite\""
+  },
+  "keywords": [],
+  "author": "Devin Atkin",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.21.1",
+    "multer": "^1.4.5-lts.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.10"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
