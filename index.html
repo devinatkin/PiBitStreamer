@@ -3,26 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>File Processing App</title>
+  <title>Bitstream Loading with OpenFPGALoader</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.16/tailwind.min.css">
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
   <div class="flex justify-center items-center h-screen">
     <div class="bg-white shadow-md rounded-lg p-8 w-full max-w-md">
-      <h1 class="text-2xl font-bold mb-4">File Processing App</h1>
+      <h1 class="text-2xl font-bold mb-4">Bitstream Loading with OpenFPGALoader</h1>
       <form id="file-form" class="space-y-4">
         <div>
-          <label for="file-input" class="block font-medium mb-1">Select a file:</label>
+          <label for="file-input" class="block font-medium mb-1">Select a bitstream file:</label>
           <input type="file" id="file-input" name="file" class="w-full border rounded-md py-2 px-3 focus:outline-none focus:border-blue-500" required>
         </div>
         <div>
-          <label for="option-select" class="block font-medium mb-1">Select an option:</label>
+          <label for="option-select" class="block font-medium mb-1">Select a board:</label>
           <select id="option-select" name="option" class="w-full border rounded-md py-2 px-3 focus:outline-none focus:border-blue-500" required>
             <option value="">Choose an option</option>
-            <option value="1">Option 1</option>
-            <option value="2">Option 2</option>
-            <option value="3">Option 3</option>
-            <option value="4">Option 4</option>
+            <option value="1">Basys3 1</option>
+            <option value="2">Basys3 2</option>
+            <option value="3">Basys3 3</option>
+            <option value="4">Basys3 4</option>
           </select>
         </div>
         <button type="submit" class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">Process File</button>
@@ -48,9 +49,9 @@
         });
 
         if (response.ok) {
-          alert('File processing successful!');
+          alert('Bitstream Loaded onto board successfully!');
         } else {
-          alert('Error processing file. Please try again.');
+          alert('Error loading file. Please try again.');
         }
       } catch (error) {
         console.error('Error:', error);
