@@ -33,5 +33,5 @@ cmake --build .
 
 sudo make install
 
-npm init -y
-npm install express multer
+npm install
+npm run start
