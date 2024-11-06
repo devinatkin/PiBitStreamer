@@ -6,6 +6,22 @@
   <title>Bitstream Loading with OpenFPGALoader</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.16/tailwind.min.css">
   <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <style>
+    /* Spinner styling */
+    .spinner {
+      display: none; /* Hidden initially */
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top: 4px solid #3498db;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
   <div class="flex justify-center items-center h-screen">
@@ -28,12 +44,18 @@
         </div>
         <button type="submit" class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">Process File</button>
       </form>
+      <!-- Spinner to show while processing -->
+      <div id="loading-spinner" class="spinner mx-auto mt-4"></div>
     </div>
   </div>
 
   <script>
     document.getElementById('file-form').addEventListener('submit', async (event) => {
       event.preventDefault();
+
+      // Show spinner
+      const spinner = document.getElementById('loading-spinner');
+      spinner.style.display = 'block';
 
       const fileInput = document.getElementById('file-input');
       const optionSelect = document.getElementById('option-select');
@@ -56,6 +78,9 @@
       } catch (error) {
         console.error('Error:', error);
         alert('An error occurred. Please try again later.');
+      } finally {
+        // Hide spinner once the response is received
+        spinner.style.display = 'none';
       }
     });
   </script>
