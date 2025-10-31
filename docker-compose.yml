@@ -1,0 +1,13 @@
+services:
+  frontend:
+    image: calcium.atkin.engineer/alberta2514640/pibitstreamer-frontend:latest
+    container_name: pibitstreamer-frontend ##name of the container
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: curl --fail http://localhost:80/ping || exit 1
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 40s
