@@ -1,0 +1,16 @@
+# don't send huge folders to Docker
+node_modules
+pibitstream/node_modules
+**/node_modules
+
+# build output
+dist
+pibitstream/dist
+
+# git stuff
+.git
+.gitignore
+
+npm-debug.log*
+Dockerfile*
+docker-compose*.yml
