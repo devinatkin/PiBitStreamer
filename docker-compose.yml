@@ -2,6 +2,8 @@ services:
   frontend:
     image: calcium.atkin.engineer/alberta2514640/pibitstreamer-frontend:latest
     container_name: pibitstreamer-frontend ##name of the container
+    ports:
+      - "8080:80"
 
     restart: unless-stopped
 
