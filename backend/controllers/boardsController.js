@@ -1,9 +1,9 @@
 // backend/controllers/boardsController.js
 module.exports = function createBoardsController(boardManager) {
   // GET /api/boards
-  const getBoards = (req, res) => {
+  const getBoards = async (req, res) => {
     try {
-      const boards = boardManager.getBoards();
+      const boards = await boardManager.getBoards();
       res.json({ success: true, boards });
     } catch (err) {
       console.error("GET /boards error:", err);
@@ -14,7 +14,7 @@ module.exports = function createBoardsController(boardManager) {
   };
 
   // POST /api/boards/:id/claim
-  const claimBoard = (req, res) => {
+  const claimBoard = async (req, res) => {
     const { id } = req.params;
     const { userid, leaseMinutes } = req.body;
     const ip = req.ip;
@@ -26,7 +26,7 @@ module.exports = function createBoardsController(boardManager) {
     }
 
     try {
-      const board = boardManager.claimBoard(id, {
+      const board = await boardManager.claimBoard(id, {
         userid,
         ip,
         leaseMinutes: leaseMinutes || 30,
@@ -39,11 +39,14 @@ module.exports = function createBoardsController(boardManager) {
   };
 
   // POST /api/boards/:id/upload
-  const uploadBitstream = (req, res) => {
+  const uploadBitstream = async (req, res) => {
     const { id } = req.params;
 
     try {
-      const { jobId, board } = boardManager.registerUpload(id, req.file);
+      const { jobId, board } = await boardManager.registerUpload(
+        id,
+        req.file
+      );
       res.json({ jobId, board });
     } catch (err) {
       console.error("Upload error:", err);
@@ -74,10 +77,23 @@ module.exports = function createBoardsController(boardManager) {
     }
   };
 
-  // GET /api/boards/admin
-  const getBoardsAdmin = (req, res) => {
+  // POST /api/boards/:id/release  (student/user-initiated release)
+  const releaseBoard = async (req, res) => {
+    const { id } = req.params;
+
     try {
-      const boards = boardManager.getBoards();
+      const board = await boardManager.releaseBoard(id);
+      res.json({ board });
+    } catch (err) {
+      console.error("Release error:", err);
+      res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  // GET /api/boards/admin
+  const getBoardsAdmin = async (req, res) => {
+    try {
+      const boards = await boardManager.getBoards();
       res.json({ boards });
     } catch (err) {
       console.error("Admin boards error:", err);
@@ -87,12 +103,12 @@ module.exports = function createBoardsController(boardManager) {
     }
   };
 
-  // POST /api/boards/:id/force-release
-  const forceReleaseBoard = (req, res) => {
+  // POST /api/boards/:id/force-release  (admin override, same underlying operation)
+  const forceReleaseBoard = async (req, res) => {
     const { id } = req.params;
 
     try {
-      const board = boardManager.releaseBoard(id);
+      const board = await boardManager.releaseBoard(id);
       res.json({ board });
     } catch (err) {
       console.error("Force release error:", err);
@@ -118,6 +134,7 @@ module.exports = function createBoardsController(boardManager) {
     claimBoard,
     uploadBitstream,
     flashBoard,
+    releaseBoard,
     getBoardsAdmin,
     forceReleaseBoard,
     rebootBoard,

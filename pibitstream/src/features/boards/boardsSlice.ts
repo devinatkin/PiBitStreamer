@@ -105,6 +105,24 @@ export const flashBoard = createAsyncThunk<
   }
 });
 
+// POST /api/boards/:id/release (your service can call BoardManager.releaseBoard)
+export const releaseBoard = createAsyncThunk<
+  BoardType,
+  { boardId: string },
+  { rejectValue: string }
+>("admin/forceReleaseBoard", async ({ boardId }, thunkAPI) => {
+  try {
+    return await boardsService.releaseBoard(boardId);
+  } catch (err) {
+    const error = err as AxiosError<{ message?: string }>;
+    const message =
+      error.response?.data?.message ??
+      error.message ??
+      "Failed to force-release board";
+    return thunkAPI.rejectWithValue(message);
+  }
+});
+
 // ---------- Slice ----------
 
 export const boardsSlice = createSlice({
@@ -221,6 +239,34 @@ export const boardsSlice = createSlice({
         state.message =
           action.payload ??
           "Failed to flash board in Boards Slice";
+      })
+
+      // releaseBoard
+      .addCase(releaseBoard.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(releaseBoard.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+
+        // Board comes back as READY / released
+        const released = action.payload;
+        state.selectedBoard = released;
+        state.currentJobId = null;
+
+        const idx = state.boards.findIndex((b) => b.id === released.id);
+        if (idx !== -1) {
+          state.boards[idx] = released;
+        } else {
+          state.boards.push(released);
+        }
+      })
+      .addCase(releaseBoard.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = false;
+        state.isError = true;
+        state.message =
+          action.payload ?? "Failed to release board in Boards Slice";
       });
   },
 });

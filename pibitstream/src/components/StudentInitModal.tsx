@@ -4,13 +4,10 @@ import React, { useEffect, useState } from "react";
 import { useAppDispatch, useAppSelector } from "../app/hooks";
 import type { BoardType } from "../features/boards/boardsService";
 import { claimBoard, fetchBoards } from "../features/boards/boardsSlice";
-
-export interface StudentUser {
-  id: string;
-  username: string;
-  role: "student";
-  board: string | null;
-}
+import {
+  registerUser,
+  type StudentUser,
+} from "../features/user/userSlice";
 
 interface StudentInitModalProps {
   student: StudentUser | null;
@@ -21,7 +18,8 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
   student,
   onRegistered,
 }) => {
-  const [open, setOpen] = useState(!student);
+  // Open if there is no student OR the student has no board yet
+  const [open, setOpen] = useState<boolean>(() => !student || !student.board);
   const [form] = Form.useForm<{ username: string }>();
   const dispatch = useAppDispatch();
   const { boards, isLoading } = useAppSelector((state) => state.boards);
@@ -33,32 +31,45 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
     }
   }, [boards.length, dispatch]);
 
-  // If student becomes defined externally, close modal
+  // Close when the student actually has a board
   useEffect(() => {
-    if (student) {
+    if (student?.board) {
       setOpen(false);
     }
-  }, [student]);
+  }, [student?.board]);
 
   const handleSubmit = async (values: { username: string }) => {
     try {
+      const username = values.username.trim();
+      if (!username) {
+        message.error("Please enter a username.");
+        return;
+      }
+
       // pick first READY board
       const readyBoard: BoardType | undefined = boards.find(
         (b) => b.status === "READY"
       );
 
       if (!readyBoard) {
-        message.error("No boards are currently available. Please try again later.");
+        message.error(
+          "No boards are currently available. Please try again later."
+        );
         return;
       }
 
-      // create UUID
+      // create UUID for this user
       const userid =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-      // claim board for this user (30 min)
+      // 1) Register user in backend (SQLite users table)
+      await dispatch(
+        registerUser({ id: userid, username })
+      ).unwrap();
+
+      // 2) Claim board for this user (30 min lease)
       const claimedBoard = await dispatch(
         claimBoard({
           boardId: readyBoard.id,
@@ -67,14 +78,15 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
         })
       ).unwrap();
 
+      // 3) Build StudentUser object for frontend
       const newStudent: StudentUser = {
         id: userid,
-        username: values.username.trim(),
+        username,
         role: "student",
         board: claimedBoard.id,
       };
 
-      // persist in localStorage
+      // Still mirror to localStorage for soft persistence
       localStorage.setItem("pibit_student", JSON.stringify(newStudent));
 
       onRegistered(newStudent);
@@ -85,7 +97,7 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
       const msg =
         typeof err === "string"
           ? err
-          : "Failed to claim a board. Please try again.";
+          : "Failed to register user or claim a board. Please try again.";
       message.error(msg);
     }
   };
@@ -94,14 +106,14 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
     <Modal
       open={open}
       title="Welcome to PiBitStream"
-      maskClosable={true}
-      closable={true}             
+      maskClosable
+      closable
       onCancel={() => {
         setOpen(false);
         form.resetFields();
       }}
-      footer={null}
-      destroyOnHidden
+      footer={null}        // hide default Cancel / OK buttons
+      destroyOnClose       // correct AntD prop
     >
       <p style={{ marginBottom: 16 }}>
         Please enter your name so we can reserve a board for you.
@@ -124,11 +136,7 @@ const StudentInitModal: React.FC<StudentInitModalProps> = ({
         </Form.Item>
 
         <Form.Item style={{ textAlign: "right", marginBottom: 0 }}>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={isLoading}
-          >
+          <Button type="primary" htmlType="submit" loading={isLoading}>
             Continue
           </Button>
         </Form.Item>

@@ -4,11 +4,25 @@ const multer = require("multer");
 const path = require("path");
 const auth = require("../middleware/auth");
 const createBoardsController = require("../controllers/boardsController");
-const FakeProgrammer = require("../hardware/FakeProgrammer");
+
+// 🔁 CHANGE THIS:
+/// const FakeProgrammer = require("../hardware/FakeProgrammer");
+// 👉 TO:
+const CmodA7Programmer = require("../hardware/CmodA7Programmer");
+
 const BoardManager = require("../services/BoardManager");
 
 // build everything here
-const programmer = new FakeProgrammer();
+
+// 🔁 CHANGE THIS:
+// const programmer = new FakeProgrammer();
+// 👉 TO:
+const programmer = new CmodA7Programmer({
+  // use "cmoda7_15t" if you have the 15T variant
+  boardName: "cmoda7_15t",
+  // openFPGALoaderBin: "/usr/local/bin/openFPGALoader", // only if not in PATH
+});
+
 const boardManager = new BoardManager(programmer);
 const controller = createBoardsController(boardManager);
 
@@ -31,6 +45,7 @@ router.get("/", controller.getBoards);
 router.post("/:id/claim", controller.claimBoard);
 router.post("/:id/upload", upload.single("file"), controller.uploadBitstream);
 router.post("/:id/flash", controller.flashBoard);
+router.post("/:id/release", controller.releaseBoard);
 
 router.get("/admin/", auth, controller.getBoardsAdmin);
 router.post("/:id/force-release", auth, controller.forceReleaseBoard);

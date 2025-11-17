@@ -27,6 +27,8 @@ app.use("/api/ping", (req, res) => {
 });
 app.use("/api/boards", require("./routes/boardsRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
+app.use("/api/users", require("./routes/usersRoutes"));
+
 
 // set up server to listen on specific port
 const port = 5000;

@@ -27,6 +27,8 @@ const Admin: React.FC = () => {
     (state) => state.admin
   );
 
+  console.log("boards", boards)
+
   // initial load
   useEffect(() => {
     dispatch(fetchAdminBoards());

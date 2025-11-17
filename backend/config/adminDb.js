@@ -7,6 +7,7 @@ const dbPath = path.join(__dirname, "..", "pibitstreamer.db");
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
+  // ---- Admins table (existing) ----
   db.run(
     `CREATE TABLE IF NOT EXISTS admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15,6 +16,40 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
   );
+
+  // ---- Boards table (NEW) ----
+  db.run(
+    `CREATE TABLE IF NOT EXISTS boards (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      userid TEXT,
+      ip TEXT,
+      lease_since INTEGER,
+      lease_until INTEGER,
+      last_error TEXT,
+      current_job_id TEXT,
+      bus TEXT,
+      dev TEXT,
+      vidpid TEXT,
+      probe_type TEXT,
+      manufacturer TEXT,
+      serial TEXT,
+      product TEXT
+    )`
+  );
+
+  db.run(
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      role TEXT DEFAULT 'student',
+      current_board_id TEXT,
+      last_ip TEXT,
+      last_seen_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    )`
+  );
+
 
   const defaultUser = process.env.ADMIN_USER || "admin";
   const defaultPass = process.env.ADMIN_PASSWORD || "admin";

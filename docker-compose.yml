@@ -1,5 +1,4 @@
 services:
-
   backend:
     image: calcium.atkin.engineer/alberta2514640/pibitstreamer-backend:latest
     container_name: pibitstreamer-backend ##name of the container

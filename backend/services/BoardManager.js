@@ -1,28 +1,63 @@
 // backend/services/BoardManager.js
 const path = require("path");
 const fs = require("fs");
+const { execSync } = require("child_process");
+const db = require("../config/adminDb");
+
+// --- small promise helpers for sqlite3 ---
+const dbAll = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const dbGet = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+  });
+
+const dbRun = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) return reject(err);
+      resolve(this); // statement context
+    });
+  });
+
+// map DB row -> board object used by API / frontend
+function rowToBoard(row) {
+  if (!row) return null;
+  const now = Date.now();
+  const leaseUntil = row.lease_until || null;
+  const secondsLeft =
+    leaseUntil && leaseUntil > now
+      ? Math.floor((leaseUntil - now) / 1000)
+      : 0;
+
+  return {
+    id: row.id,
+    status: row.status,
+    userid: row.userid,
+    ip: row.ip,
+    leaseSince: row.lease_since || null,
+    leaseUntil: leaseUntil,
+    secondsLeft,
+    lastError: row.last_error || null,
+    currentJobId: row.current_job_id || null,
+    hw: {
+      bus: row.bus || null,
+      dev: row.dev || null,
+      vidpid: row.vidpid || null,
+      probeType: row.probe_type || null,
+      manufacturer: row.manufacturer || null,
+      serial: row.serial || null,
+      product: row.product || null,
+    },
+  };
+}
 
 class BoardManager {
   constructor(programmer) {
     this.programmer = programmer;
-
-    // initial board list
-    this.boards = [
-      "Basys3-A",
-      "Basys3-B",
-      "Basys3-C",
-      "Basys3-D",
-    ].map((id) => ({
-      id,
-      status: "READY", // READY | BUSY | FLASHING | ERROR
-      userid: null,
-      ip: null,
-      leaseSince: null,
-      leaseUntil: null,
-      secondsLeft: 0,
-      lastError: null,
-      currentJobId: null,
-    }));
 
     // jobs: jobId -> { boardId, filePath, originalName, createdAt }
     this.jobs = {};
@@ -33,87 +68,248 @@ class BoardManager {
       fs.mkdirSync(this.uploadDir, { recursive: true });
     }
 
+    // sync hardware -> DB on startup (fire and forget)
+    this._syncBoardsFromHardware().catch((err) => {
+      console.error("[BoardManager] Failed to sync boards from hardware:", err);
+    });
+
     // start lease expiry timer
-    setInterval(() => this._checkLeases(), 10_000);
+    setInterval(() => {
+      this._checkLeases().catch((err) =>
+        console.error("[BoardManager] lease check failed:", err)
+      );
+    }, 10_000);
   }
 
-  _findBoard(id) {
-    const board = this.boards.find((b) => b.id === id);
-    if (!board) {
+  /**
+   * Use `openFPGALoader --scan-usb` to discover connected boards.
+   * Builds board IDs like: CmodA7-<serial> or CmodA7-<bus>-<dev>.
+   */
+  _detectBoards() {
+    let output;
+    try {
+      output = execSync("openFPGALoader --scan-usb", { encoding: "utf8" });
+    } catch (err) {
+      console.error(
+        "[BoardManager] Failed to run `openFPGALoader --scan-usb`:",
+        err.message || err
+      );
+      return [];
+    }
+
+    const lines = output
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    const boards = [];
+
+    for (const line of lines) {
+      if (line.startsWith("empty")) continue;
+      if (line.startsWith("Bus device")) continue;
+
+      const parts = line.split(/\s+/);
+      if (parts.length < 6) continue;
+
+      const [bus, dev, vidpid, probeType, manufacturer, serial, ...productParts] =
+        parts;
+      const product = productParts.join(" ");
+
+      const id = serial ? `CmodA7-${serial}` : `CmodA7-${bus}-${dev}`;
+
+      boards.push({
+        id,
+        hw: {
+          bus,
+          dev,
+          vidpid,
+          probeType,
+          manufacturer,
+          serial,
+          product,
+        },
+      });
+    }
+
+    console.log(
+      "[BoardManager] Detected boards:",
+      boards.map((b) => b.id)
+    );
+
+    return boards;
+  }
+
+  /**
+   * Insert/update detected boards into the DB.
+   * - New boards -> insert with status READY
+   * - Existing boards -> keep status/lease, just refresh HW metadata
+   */
+  async _syncBoardsFromHardware() {
+    const detected = this._detectBoards();
+
+    if (detected.length === 0) {
+      console.warn(
+        "[BoardManager] No hardware boards detected. /api/boards will be empty until something is plugged in."
+      );
+      return;
+    }
+
+    for (const b of detected) {
+      const existing = await dbGet("SELECT * FROM boards WHERE id = ?", [
+        b.id,
+      ]);
+
+      if (!existing) {
+        await dbRun(
+          `INSERT INTO boards (
+            id, status, userid, ip, lease_since, lease_until, last_error, current_job_id,
+            bus, dev, vidpid, probe_type, manufacturer, serial, product
+          ) VALUES (?, 'READY', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            b.id,
+            b.hw.bus,
+            b.hw.dev,
+            b.hw.vidpid,
+            b.hw.probeType,
+            b.hw.manufacturer,
+            b.hw.serial,
+            b.hw.product,
+          ]
+        );
+      } else {
+        // keep status/lease, just refresh hardware metadata
+        await dbRun(
+          `UPDATE boards SET
+             bus = ?, dev = ?, vidpid = ?, probe_type = ?, manufacturer = ?, serial = ?, product = ?
+           WHERE id = ?`,
+          [
+            b.hw.bus,
+            b.hw.dev,
+            b.hw.vidpid,
+            b.hw.probeType,
+            b.hw.manufacturer,
+            b.hw.serial,
+            b.hw.product,
+            b.id,
+          ]
+        );
+      }
+    }
+  }
+
+  async _checkLeases() {
+    const now = Date.now();
+
+    const rows = await dbAll(
+      "SELECT * FROM boards WHERE lease_until IS NOT NULL AND lease_until <= ?",
+      [now]
+    );
+
+    for (const row of rows) {
+      console.log(`[LEASE] Auto-releasing board ${row.id}`);
+      await this.releaseBoard(row.id);
+    }
+  }
+
+  async getBoards() {
+    const rows = await dbAll("SELECT * FROM boards", []);
+    return rows.map(rowToBoard);
+  }
+
+  async getBoard(id) {
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
+    if (!row) {
       throw new Error(`Board ${id} not found`);
     }
-    return board;
+    return rowToBoard(row);
   }
 
-  _checkLeases() {
-    const now = Date.now();
-    this.boards.forEach((board) => {
-      if (board.leaseUntil) {
-        const diffMs = board.leaseUntil - now;
-        board.secondsLeft = Math.max(0, Math.floor(diffMs / 1000));
+  async claimBoard(id, { userid, ip, leaseMinutes = 30 }) {
+    const user = await dbGet("SELECT * FROM users WHERE id = ?", [userid]);
+    if (!user) {
+      throw new Error("User not registered");
+    }
 
-        if (diffMs <= 0) {
-          // auto-release
-          console.log(`[LEASE] Auto-releasing board ${board.id}`);
-          this.releaseBoard(board.id);
-        }
-      } else {
-        board.secondsLeft = 0;
-      }
-    });
-  }
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
+    if (!row) throw new Error(`Board ${id} not found`);
+    if (row.status !== "READY") throw new Error(`Board ${id} is not available`);
 
-  getBoards() {
-    return this.boards;
-  }
-
-  getBoard(id) {
-    return this._findBoard(id);
-  }
-
-  claimBoard(id, { userid, ip, leaseMinutes = 30 }) {
-    const board = this._findBoard(id);
-
-    if (board.status !== "READY") {
-      throw new Error(`Board ${id} is not available`);
+    // Optional: enforce 1 board per user
+    const other = await dbGet(
+      "SELECT * FROM boards WHERE userid = ? AND id <> ?",
+      [userid, id]
+    );
+    if (other) {
+      throw new Error("User already has a board reserved");
     }
 
     const now = Date.now();
     const leaseMs = leaseMinutes * 60 * 1000;
+    const leaseUntil = now + leaseMs;
 
-    board.status = "BUSY";
-    board.userid = userid;
-    board.ip = ip;
-    board.leaseSince = now;
-    board.leaseUntil = now + leaseMs;
-    board.lastError = null;
+    await dbRun(
+      `UPDATE boards
+       SET status = 'BUSY',
+           userid = ?,
+           ip = ?,
+           lease_since = ?,
+           lease_until = ?,
+           last_error = NULL
+       WHERE id = ?`,
+      [userid, ip, now, leaseUntil, id]
+    );
 
-    this._checkLeases(); // update secondsLeft immediately
+    await dbRun(
+      `UPDATE users SET current_board_id = ? WHERE id = ?`,
+      [id, userid]
+    );
 
-    return board;
+    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
+    return rowToBoard(updated);
   }
 
-  releaseBoard(id) {
-    const board = this._findBoard(id);
+  async releaseBoard(id) {
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
+    if (!row) {
+      throw new Error(`Board ${id} not found`);
+    }
 
-    board.status = "READY";
-    board.userid = null;
-    board.ip = null;
-    board.leaseSince = null;
-    board.leaseUntil = null;
-    board.secondsLeft = 0;
-    board.currentJobId = null;
-    board.lastError = null;
+    const userid = row.userid;
 
-    return board;
+    await dbRun(
+      `UPDATE boards
+       SET status = 'READY',
+           userid = NULL,
+           ip = NULL,
+           lease_since = NULL,
+           lease_until = NULL,
+           current_job_id = NULL,
+           last_error = NULL
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (userid) {
+      await dbRun(
+        `UPDATE users SET current_board_id = NULL WHERE id = ?`,
+        [userid]
+      );
+    }
+
+    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
+    return rowToBoard(updated);
   }
 
-  registerUpload(boardId, file) {
+  async registerUpload(boardId, file) {
     if (!file) {
       throw new Error("No file uploaded");
     }
 
-    // multer already placed file somewhere; just record it
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
+    if (!row) {
+      throw new Error(`Board ${boardId} not found`);
+    }
+
     const jobId = `job_${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -126,44 +322,66 @@ class BoardManager {
       createdAt: new Date().toISOString(),
     };
 
-    const board = this._findBoard(boardId);
-    board.currentJobId = jobId;
+    await dbRun(
+      `UPDATE boards SET current_job_id = ? WHERE id = ?`,
+      [jobId, boardId]
+    );
 
-    return { jobId, board };
+    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [
+      boardId,
+    ]);
+    return { jobId, board: rowToBoard(updated) };
   }
 
   async flashBoard(boardId, jobId) {
-    const board = this._findBoard(boardId);
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
+    if (!row) {
+      throw new Error(`Board ${boardId} not found`);
+    }
 
     const job = this.jobs[jobId];
     if (!job || job.boardId !== boardId) {
       throw new Error("Job not found for this board");
     }
 
-    board.status = "FLASHING";
-    board.lastError = null;
+    // mark as FLASHING
+    await dbRun(
+      `UPDATE boards SET status = 'FLASHING', last_error = NULL WHERE id = ?`,
+      [boardId]
+    );
 
     try {
       await this.programmer.flashBitstream(boardId, job.filePath);
-      board.status = "READY";
+
+      await dbRun(
+        `UPDATE boards SET status = 'READY' WHERE id = ?`,
+        [boardId]
+      );
     } catch (err) {
       console.error(`[FLASH] Error flashing ${boardId}:`, err);
-      board.status = "ERROR";
-      board.lastError = err.message || "Flash failed";
+      await dbRun(
+        `UPDATE boards SET status = 'ERROR', last_error = ? WHERE id = ?`,
+        [err.message || "Flash failed", boardId]
+      );
       throw err;
     }
 
-    return board;
+    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [
+      boardId,
+    ]);
+    return rowToBoard(updated);
   }
 
   async rebootBoard(boardId) {
-    const board = this._findBoard(boardId);
+    const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
+    if (!row) {
+      throw new Error(`Board ${boardId} not found`);
+    }
 
     await this.programmer.rebootBoard(boardId);
 
     // after reboot, treat as released
-    this.releaseBoard(boardId);
-    return board;
+    return this.releaseBoard(boardId);
   }
 }
 

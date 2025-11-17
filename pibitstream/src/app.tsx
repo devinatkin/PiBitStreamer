@@ -3,6 +3,7 @@ import '@ant-design/v5-patch-for-react-19';
 import React from 'react';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import Admin from './pages/Admin';
+import BoardPage from './pages/BoardPage';
 import Home from './pages/Home';
 import HomeLayout from './pages/HomeLayout';
 import PrivateRoutes from './utils/PrivateRoutes';
@@ -13,6 +14,7 @@ const App: React.FC = () => {
       <Routes>
         <Route element={<HomeLayout />}>
           <Route index element={<Home />} />
+          <Route path='board/:id' element={<BoardPage/>} />
           <Route element={<PrivateRoutes />}>
             <Route path="admin" element={<Admin />} />
           </Route>

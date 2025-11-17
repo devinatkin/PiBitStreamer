@@ -8,6 +8,16 @@ if (!import.meta.env.PROD) {
   API_URL = "/api/";                       // prod via same origin
 }
 
+export interface BoardHwInfo {
+  bus: string | null;
+  dev: string | null;
+  vidpid: string | null;
+  probeType: string | null;
+  manufacturer: string | null;
+  serial: string | null;
+  product: string | null;
+}
+
 export interface BoardType {
   id: string;
   status: "READY" | "BUSY" | "FLASHING" | "ERROR";
@@ -18,6 +28,7 @@ export interface BoardType {
   secondsLeft: number;
   lastError: string | null;
   currentJobId: string | null;
+  hw: BoardHwInfo | null;      // 👈 new field for the hardware info
 }
 
 // GET /api/boards
@@ -109,11 +120,28 @@ const flashBoard = async (payload: {
   }
 };
 
+// POST /api/boards/:id/release
+// body: { boardId }
+// returns { board }
+const releaseBoard = async (
+  boardId: string,
+): Promise<BoardType> => {
+  const { data } = await axios.post(
+    API_URL + `boards/${boardId}/release`,
+    {},
+  );
+
+  // backend shape: { board }
+  return data.board as BoardType;
+};
+
+
 const boardsService = {
   getBoards,
   claimBoard,
   uploadBitstream,
   flashBoard,
+  releaseBoard
 };
 
 export default boardsService;
