@@ -1,4 +1,23 @@
 steps:
+  - name: create backend image
+    image: woodpeckerci/plugin-docker-buildx
+    when:
+      event:
+        - push
+      branch:
+        - master
+    settings:
+      registry: calcium.atkin.engineer
+      repo: calcium.atkin.engineer/alberta2514640/pibitstreamer-frontend
+      dockerfile: ./backend/Dockerfile.backend
+      platforms: linux/amd64
+      tags:
+        - latest
+      username:
+        from_secret: HARBOR_USERNAME
+      password:
+        from_secret: HARBOR_PASSWORD
+
   - name: create frontend image
     image: woodpeckerci/plugin-docker-buildx
     when:
@@ -8,7 +27,7 @@ steps:
         - master
     settings:
       registry: calcium.atkin.engineer
-      repo: calcium.atkin.engineer/fl2f/pibitstreamer-frontend
+      repo: calcium.atkin.engineer/alberta2514640/pibitstreamer-frontend
       dockerfile: ./pibitstream/Dockerfile.frontend
       platforms: linux/amd64
       tags:

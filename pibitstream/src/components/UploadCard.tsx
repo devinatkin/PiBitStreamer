@@ -1,8 +1,8 @@
-import { InboxOutlined } from '@ant-design/icons';
-import { ProCard } from '@ant-design/pro-components';
-import { Button, message, Progress, Space, Typography, Upload } from 'antd';
-import type { RcFile, UploadProps } from 'antd/es/upload';
-import React, { useMemo, useState } from 'react';
+import { InboxOutlined } from "@ant-design/icons";
+import { ProCard } from "@ant-design/pro-components";
+import { Button, message, Progress, Space, Typography, Upload } from "antd";
+import type { RcFile, UploadProps } from "antd/es/upload";
+import React, { useMemo, useState } from "react";
 
 const { Dragger } = Upload;
 
@@ -20,18 +20,12 @@ export interface UploadCardProps {
   disabled?: boolean;
 }
 
-/**
- * UploadCard — ProCard wrapper around antd Upload.Dragger
- * - Validates file type/size locally
- * - Calls onUpload(file) instead of auto-posting
- * - Shows progress when onUpload returns a Promise (simulated if not provided)
- */
 const UploadCard: React.FC<UploadCardProps> = ({
   onUpload,
-  accept = '.bit,.svf,.sv',
+  accept = ".bit,.svf,.sv",
   maxSizeMB = 50,
-  title = 'Upload Bitstream',
-  subTitle = 'Drag & drop your SystemVerilog/bitstream file here, or click to browse',
+  title = "Upload Bitstream",
+  subTitle = "Drag & drop your SystemVerilog/bitstream file here, or click to browse",
   disabled = false,
 }) => {
   const [uploading, setUploading] = useState(false);
@@ -42,13 +36,17 @@ const UploadCard: React.FC<UploadCardProps> = ({
     setProgress(0);
   };
 
-  const beforeUpload: UploadProps['beforeUpload'] = async (file: RcFile) => {
+  const beforeUpload: UploadProps["beforeUpload"] = async (file: RcFile) => {
+    console.log("[UploadCard] beforeUpload called with:", file);
+
     // Type/extension check
     const allowed = accept
-      .split(',')
+      .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
-    const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
+
+    const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+    console.log("[UploadCard] allowed:", allowed, "ext:", ext);
 
     const typeOk =
       allowed.length === 0 ||
@@ -57,17 +55,20 @@ const UploadCard: React.FC<UploadCardProps> = ({
 
     if (!typeOk) {
       message.error(`Invalid file type. Allowed: ${accept}`);
-      return Upload.LIST_IGNORE;
+      console.warn("[UploadCard] file rejected due to type");
+      return Upload.LIST_IGNORE; // IMPORTANT: no onChange in this case
     }
 
     // Size check
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > maxSizeMB) {
       message.error(`File is too large. Max ${maxSizeMB} MB.`);
+      console.warn("[UploadCard] file rejected due to size");
       return Upload.LIST_IGNORE;
     }
 
     // Prevent antd from auto-uploading; we handle it in onChange
+    console.log("[UploadCard] file accepted by beforeUpload");
     return false;
   };
 
@@ -87,21 +88,22 @@ const UploadCard: React.FC<UploadCardProps> = ({
   };
 
   const handleCustomUpload = async (file: File) => {
+    console.log("[UploadCard] handleCustomUpload got file:", file);
     let stopSim: (() => void) | undefined;
+
     try {
+      stopSim = simulateProgress();
+
       if (onUpload) {
-        setUploading(true);
-        stopSim = simulateProgress();
-        await onUpload(file);
+        await onUpload(file); // -> this should hit your Home.handleUpload
         setProgress(100);
-        message.success('Upload complete');
       } else {
-        // No handler given — just simulate a short “success”
-        stopSim = simulateProgress();
         await new Promise((r) => setTimeout(r, 1200));
         setProgress(100);
-        message.success('Pretend upload complete (no onUpload handler)');
+        message.success("Pretend upload complete (no onUpload handler)");
       }
+    } catch (err) {
+      console.error("[UploadCard] error in handleCustomUpload:", err);
     } finally {
       if (stopSim) stopSim();
       setTimeout(reset, 500);
@@ -114,14 +116,22 @@ const UploadCard: React.FC<UploadCardProps> = ({
       accept,
       disabled: disabled || uploading,
       beforeUpload,
-      showUploadList: false, // we show our own progress
+      showUploadList: false,
       onChange: async (info) => {
-        const f = info.file.originFileObj as File | undefined;
-        if (!f) return;
-        await handleCustomUpload(f);
+        console.log("[UploadCard] onChange:", info);
+
+        // When beforeUpload returns false, info.file is already an RcFile (extends File)
+        const f = info.file as RcFile;
+
+        if (!f) {
+          console.warn("[UploadCard] file is undefined in onChange");
+          return;
+        }
+
+        await handleCustomUpload(f as unknown as File);
       },
     }),
-    [accept, disabled, uploading]
+    [accept, disabled, uploading, onUpload] // keep onUpload in deps
   );
 
   return (
@@ -141,11 +151,10 @@ const UploadCard: React.FC<UploadCardProps> = ({
           )}
         </Space>
       }
-      // keep content roomy but not huge
       bodyStyle={{ padding: 16 }}
-      style={{ width: '100%', maxWidth: 640 }}
+      style={{ width: "100%", maxWidth: 640 }}
     >
-      <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+      <Space direction="vertical" size={12} style={{ display: "flex" }}>
         <Dragger {...uploadProps} style={{ padding: 16 }}>
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
@@ -160,7 +169,10 @@ const UploadCard: React.FC<UploadCardProps> = ({
 
         {uploading && (
           <div style={{ paddingInline: 4 }}>
-            <Progress percent={progress} status={progress < 100 ? 'active' : 'success'} />
+            <Progress
+              percent={progress}
+              status={progress < 100 ? "active" : "success"}
+            />
           </div>
         )}
       </Space>

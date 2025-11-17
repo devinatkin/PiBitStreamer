@@ -3,7 +3,6 @@ import {
   GithubFilled,
   HomeOutlined,
   InfoCircleFilled,
-  UserSwitchOutlined,
 } from '@ant-design/icons';
 import {
   DefaultFooter,
@@ -13,6 +12,7 @@ import {
 import { Tooltip } from 'antd';
 import React, { useMemo } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import AdminLoginAction from '../components/AdminLoginAction';
 
 const HomeLayout: React.FC = () => {
   const location = useLocation();
@@ -36,13 +36,7 @@ const HomeLayout: React.FC = () => {
       // Right-side header actions: Admin link + a couple of small icons
       actionsRender={() => [
         <Tooltip key="admin" title="Admin">
-          <Link
-            to="/admin"
-            style={{ color: 'inherit', textDecoration: 'none' }}
-            aria-label="Go to admin"
-          >
-            <UserSwitchOutlined/>
-          </Link>
+          <AdminLoginAction key="admin" />,
         </Tooltip>,
         <Tooltip key="info" title="Info">
           <InfoCircleFilled />
