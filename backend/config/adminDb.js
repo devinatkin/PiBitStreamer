@@ -1,9 +1,16 @@
 // backend/config/adminDb.js
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
+const fs = require("fs");          // 👈 add this
 const bcrypt = require("bcryptjs");
 
-const dbPath = path.join(__dirname, "..", "pibitstreamer.db");
+// Put DB under /app/data/pibitstreamer.db (relative to backend/config)
+const dbDir = path.join(__dirname, "..", "data");
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const dbPath = path.join(dbDir, "pibitstreamer.db");
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
@@ -17,7 +24,7 @@ db.serialize(() => {
     )`
   );
 
-  // ---- Boards table (NEW) ----
+  // ---- Boards table ----
   db.run(
     `CREATE TABLE IF NOT EXISTS boards (
       id TEXT PRIMARY KEY,
@@ -38,6 +45,7 @@ db.serialize(() => {
     )`
   );
 
+  // ---- Users table ----
   db.run(
     `CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -50,11 +58,9 @@ db.serialize(() => {
     )`
   );
 
-
   const defaultUser = process.env.ADMIN_USER || "admin";
   const defaultPass = process.env.ADMIN_PASSWORD || "admin";
 
-  // Create a default admin if it doesn't exist
   db.get(
     "SELECT id FROM admins WHERE username = ?",
     [defaultUser],

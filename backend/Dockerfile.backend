@@ -1,5 +1,10 @@
-FROM node:22-alpine
+FROM node:22-bookworm
 WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      openfpgaloader \
+      && rm -rf /var/lib/apt/lists/*
 
 # Since we're inside backend/, just copy the files directly
 COPY package.json ./
@@ -10,6 +15,9 @@ COPY . ./
 
 # Install dependencies
 RUN npm ci
+
+ENV NODE_ENV=production
+ENV PORT=5000
 
 EXPOSE 5000
 

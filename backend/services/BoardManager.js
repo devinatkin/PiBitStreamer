@@ -55,6 +55,11 @@ function rowToBoard(row) {
   };
 }
 
+// Helper function to sleep/delay
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 class BoardManager {
   constructor(programmer) {
     this.programmer = programmer;
@@ -69,9 +74,12 @@ class BoardManager {
     }
 
     // sync hardware -> DB on startup (fire and forget)
-    this._syncBoardsFromHardware().catch((err) => {
-      console.error("[BoardManager] Failed to sync boards from hardware:", err);
-    });
+    // Add a small delay to let USB subsystem initialize
+    setTimeout(() => {
+      this._syncBoardsFromHardware().catch((err) => {
+        console.error("[BoardManager] Failed to sync boards from hardware:", err);
+      });
+    }, 1000);
 
     // start lease expiry timer
     setInterval(() => {
@@ -88,12 +96,20 @@ class BoardManager {
   _detectBoards() {
     let output;
     try {
-      output = execSync("openFPGALoader --scan-usb", { encoding: "utf8" });
+      output = execSync("openFPGALoader --scan-usb", { 
+        encoding: "utf8",
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
     } catch (err) {
       console.error(
         "[BoardManager] Failed to run `openFPGALoader --scan-usb`:",
         err.message || err
       );
+      // Log stderr if available
+      if (err.stderr) {
+        console.error("[BoardManager] stderr:", err.stderr.toString());
+      }
       return [];
     }
 
@@ -101,6 +117,8 @@ class BoardManager {
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
+
+    console.log(`[BoardManager] Raw openFPGALoader output (${lines.length} lines):`, output);
 
     const boards = [];
 
@@ -143,13 +161,33 @@ class BoardManager {
    * Insert/update detected boards into the DB.
    * - New boards -> insert with status READY
    * - Existing boards -> keep status/lease, just refresh HW metadata
+   * - Retries up to 3 times with 2 second delay between attempts
    */
   async _syncBoardsFromHardware() {
-    const detected = this._detectBoards();
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2 seconds
+    let detected = [];
+
+    // Try up to 3 times to detect boards
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`[BoardManager] Board detection attempt ${attempt}/${maxRetries}`);
+      
+      detected = this._detectBoards();
+
+      if (detected.length > 0) {
+        console.log(`[BoardManager] Successfully detected ${detected.length} board(s) on attempt ${attempt}`);
+        break;
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`[BoardManager] No boards detected, waiting ${retryDelay}ms before retry...`);
+        await sleep(retryDelay);
+      }
+    }
 
     if (detected.length === 0) {
       console.warn(
-        "[BoardManager] No hardware boards detected. /api/boards will be empty until something is plugged in."
+        "[BoardManager] No hardware boards detected after 3 attempts. /api/boards will be empty until something is plugged in."
       );
       return;
     }
@@ -382,6 +420,15 @@ class BoardManager {
 
     // after reboot, treat as released
     return this.releaseBoard(boardId);
+  }
+
+  /**
+   * Manual rescan endpoint - useful for hot-plugging boards after startup
+   */
+  async rescanBoards() {
+    console.log("[BoardManager] Manual board rescan triggered");
+    await this._syncBoardsFromHardware();
+    return this.getBoards();
   }
 }
 

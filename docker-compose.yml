@@ -1,35 +1,44 @@
 services:
   backend:
     image: calcium.atkin.engineer/alberta2514640/pibitstreamer-backend:latest
-    container_name: pibitstreamer-backend ##name of the container
+    container_name: pibitstreamer-backend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-
     networks:
       - default
-
+    volumes:
+      - pibit_db:/app/data
+      - pibit_uploads:/app/uploads
+      - /dev:/dev
+      - /run/udev:/run/udev:ro
+    privileged: true
+    group_add:
+      - plugdev
     healthcheck:
       test: curl --fail http://localhost:5000/ping || exit 1
       interval: 5m
       timeout: 10s
       retries: 3
       start_period: 40s
+      
   frontend:
     image: calcium.atkin.engineer/alberta2514640/pibitstreamer-frontend:latest
-    container_name: pibitstreamer-frontend ##name of the container
+    container_name: pibitstreamer-frontend
     ports:
       - "8080:80"
-
     restart: unless-stopped
     networks:
       - default
     depends_on:
       - backend
-
     healthcheck:
       test: curl --fail http://localhost:80/ping || exit 1
       interval: 5m
       timeout: 10s
       retries: 3
       start_period: 40s
+      
+volumes:
+  pibit_db:
+  pibit_uploads:
