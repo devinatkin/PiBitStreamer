@@ -123,6 +123,24 @@ export const releaseBoard = createAsyncThunk<
   }
 });
 
+// POST /api/boards/:id/reboot
+export const rebootBoard = createAsyncThunk<
+  BoardType,
+  { boardId: string },
+  { rejectValue: string }
+>("boards/rebootBoard", async ({ boardId }, thunkAPI) => {
+  try {
+    return await boardsService.rebootBoard(boardId);
+  } catch (err) {
+    const error = err as AxiosError<{ message?: string }>;
+    const message =
+      error.response?.data?.message ??
+      error.message ??
+      "Failed to reboot board";
+    return thunkAPI.rejectWithValue(message);
+  }
+});
+
 // ---------- Slice ----------
 
 export const boardsSlice = createSlice({
@@ -169,9 +187,7 @@ export const boardsSlice = createSlice({
         state.selectedBoard = action.payload;
 
         // update the board in the list if it exists
-        const idx = state.boards.findIndex(
-          (b) => b.id === action.payload.id
-        );
+        const idx = state.boards.findIndex((b) => b.id === action.payload.id);
         if (idx !== -1) {
           state.boards[idx] = action.payload;
         } else {
@@ -197,7 +213,7 @@ export const boardsSlice = createSlice({
         state.selectedBoard = action.payload.board;
 
         const idx = state.boards.findIndex(
-          (b) => b.id === action.payload.board.id
+          (b) => b.id === action.payload.board.id,
         );
         if (idx !== -1) {
           state.boards[idx] = action.payload.board;
@@ -210,8 +226,7 @@ export const boardsSlice = createSlice({
         state.isSuccess = false;
         state.isError = true;
         state.message =
-          action.payload ??
-          "Failed to upload bitstream in Boards Slice";
+          action.payload ?? "Failed to upload bitstream in Boards Slice";
       })
 
       // flashBoard
@@ -223,9 +238,7 @@ export const boardsSlice = createSlice({
         state.isSuccess = true;
         state.selectedBoard = action.payload;
 
-        const idx = state.boards.findIndex(
-          (b) => b.id === action.payload.id
-        );
+        const idx = state.boards.findIndex((b) => b.id === action.payload.id);
         if (idx !== -1) {
           state.boards[idx] = action.payload;
         } else {
@@ -237,8 +250,7 @@ export const boardsSlice = createSlice({
         state.isSuccess = false;
         state.isError = true;
         state.message =
-          action.payload ??
-          "Failed to flash board in Boards Slice";
+          action.payload ?? "Failed to flash board in Boards Slice";
       })
 
       // releaseBoard
@@ -267,6 +279,32 @@ export const boardsSlice = createSlice({
         state.isError = true;
         state.message =
           action.payload ?? "Failed to release board in Boards Slice";
+      })
+
+      .addCase(rebootBoard.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(rebootBoard.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+
+        const rebooted = action.payload;
+        state.selectedBoard = rebooted;
+        state.currentJobId = null;
+
+        const idx = state.boards.findIndex((b) => b.id === rebooted.id);
+        if (idx !== -1) {
+          state.boards[idx] = rebooted;
+        } else {
+          state.boards.push(rebooted);
+        }
+      })
+      .addCase(rebootBoard.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = false;
+        state.isError = true;
+        state.message =
+          action.payload ?? "Failed to reboot board in Boards Slice";
       });
   },
 });

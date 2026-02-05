@@ -5,7 +5,7 @@ let API_URL = "";
 if (!import.meta.env.PROD) {
   API_URL = "http://localhost:5000/api/"; // dev backend
 } else {
-  API_URL = "/api/";                       // prod via same origin
+  API_URL = "/api/"; // prod via same origin
 }
 
 export interface BoardHwInfo {
@@ -20,15 +20,15 @@ export interface BoardHwInfo {
 
 export interface BoardType {
   id: string;
-  status: "READY" | "BUSY" | "FLASHING" | "ERROR";
+  status: "READY" | "BUSY" | "FLASHING" | "ERROR" | "REBOOTING";
   userid: string | null;
   ip: string | null;
-  leaseSince: number | null;   // Date.now() from backend
+  leaseSince: number | null; // Date.now() from backend
   leaseUntil: number | null;
   secondsLeft: number;
   lastError: string | null;
   currentJobId: string | null;
-  hw: BoardHwInfo | null;      // 👈 new field for the hardware info
+  hw: BoardHwInfo | null; // 👈 new field for the hardware info
 }
 
 // GET /api/boards
@@ -53,13 +53,10 @@ const claimBoard = async (payload: {
   const { boardId, userid, leaseMinutes } = payload;
 
   try {
-    const { data } = await axios.post(
-      API_URL + `boards/${boardId}/claim`,
-      {
-        userid,
-        leaseMinutes,
-      }
-    );
+    const { data } = await axios.post(API_URL + `boards/${boardId}/claim`, {
+      userid,
+      leaseMinutes,
+    });
     // backend: { board }
     return data.board as BoardType;
   } catch (error) {
@@ -86,7 +83,7 @@ const uploadBitstream = async (payload: {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      }
+      },
     );
     // backend: { jobId, board }
     return {
@@ -109,10 +106,9 @@ const flashBoard = async (payload: {
   const { boardId, jobId } = payload;
 
   try {
-    const { data } = await axios.post(
-      API_URL + `boards/${boardId}/flash`,
-      { jobId }
-    );
+    const { data } = await axios.post(API_URL + `boards/${boardId}/flash`, {
+      jobId,
+    });
     return data.board as BoardType;
   } catch (error) {
     console.log("error from BoardsService.flashBoard: ", error);
@@ -123,25 +119,25 @@ const flashBoard = async (payload: {
 // POST /api/boards/:id/release
 // body: { boardId }
 // returns { board }
-const releaseBoard = async (
-  boardId: string,
-): Promise<BoardType> => {
-  const { data } = await axios.post(
-    API_URL + `boards/${boardId}/release`,
-    {},
-  );
+const releaseBoard = async (boardId: string): Promise<BoardType> => {
+  const { data } = await axios.post(API_URL + `boards/${boardId}/release`, {});
 
   // backend shape: { board }
   return data.board as BoardType;
 };
 
+const rebootBoard = async (boardId: string): Promise<BoardType> => {
+  const { data } = await axios.post(API_URL + `boards/${boardId}/reboot`, {});
+  return data.board as BoardType;
+};
 
 const boardsService = {
   getBoards,
   claimBoard,
   uploadBitstream,
   flashBoard,
-  releaseBoard
+  releaseBoard,
+  rebootBoard,
 };
 
 export default boardsService;

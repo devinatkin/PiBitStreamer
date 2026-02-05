@@ -1,7 +1,7 @@
 // src/pages/Home.tsx
 import { PageContainer, ProCard } from "@ant-design/pro-components";
 import { Button, message, Space, Spin, Typography } from "antd";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../app/hooks";
 import StudentInitModal from "../components/StudentInitModal";
@@ -20,8 +20,10 @@ const Home: React.FC = () => {
   const { boards, isLoading } = useAppSelector((state) => state.boards);
   const { user } = useAppSelector((state) => state.user);
 
-  // key used to force-remount StudentInitModal when we want to reopen it
   const [modalKey, setModalKey] = useState(0);
+
+  // Avoid spamming messages in effects
+  const warnedStaleRef = useRef(false);
 
   // On first load: hydrate user from localStorage (identity only)
   useEffect(() => {
@@ -33,11 +35,11 @@ const Home: React.FC = () => {
     dispatch(fetchBoards());
   }, [dispatch]);
 
-  // Find this user's board in Redux state (using backend as source of truth)
+  // Find this user's board in Redux state (backend source of truth)
   const myBoard: BoardType | null = useMemo(() => {
     if (!user?.board) return null;
     return boards.find((b) => b.id === user.board) || null;
-  }, [boards, user]);
+  }, [boards, user?.board]);
 
   // lease time as ms (backend already sends ms numbers)
   const leaseUntilMs: number | null = useMemo(
@@ -47,15 +49,39 @@ const Home: React.FC = () => {
 
   const isLeaseActive = !!leaseUntilMs && leaseUntilMs > Date.now();
 
-  // Auto-redirect to board page if user already has an active lease
+  // ✅ Only consider "has board reserved" if the lease is ACTIVE
+  const hasActiveLease = !!user?.board && isLeaseActive;
+
+  // If user has a board saved but backend says lease is NOT active, it is stale
+  const hasStaleSavedBoard = !!user?.board && !isLeaseActive;
+
+  // ✅ If lease is active, auto-redirect to board page
   useEffect(() => {
-    if (user?.board && isLeaseActive) {
+    if (hasActiveLease && user?.board) {
       navigate(`/board/${encodeURIComponent(user.board)}`, { replace: true });
     }
-  }, [user?.board, isLeaseActive, navigate]);
+  }, [hasActiveLease, user?.board, navigate]);
+
+  // ✅ If admin force-released / lease expired, clear local saved board
+  useEffect(() => {
+    if (!user?.board) {
+      warnedStaleRef.current = false;
+      return;
+    }
+
+    if (hasStaleSavedBoard) {
+      // Show a warning once
+      if (!warnedStaleRef.current) {
+        warnedStaleRef.current = true;
+        message.warning("Your board lease is no longer active. Please reconnect to claim a board again.");
+      }
+
+      const cleared: StudentUser = { ...user, board: null };
+      dispatch(setUser(cleared));
+    }
+  }, [hasStaleSavedBoard, user, dispatch]);
 
   const handleConnectClick = () => {
-    // Reset current user.board and reopen modal
     const cleared: StudentUser | null = user ? { ...user, board: null } : null;
     dispatch(setUser(cleared));
     setModalKey((k) => k + 1);
@@ -69,16 +95,12 @@ const Home: React.FC = () => {
     navigate(`/board/${encodeURIComponent(user.board)}`);
   };
 
-  const hasBoard = !!user?.board;
-
   return (
     <>
-      {/* First-time user / reconnection onboarding */}
       <StudentInitModal
         key={modalKey}
         student={user}
         onRegistered={(s) => {
-          // After a successful claim, save student AND go straight to board page
           dispatch(setUser(s));
           if (s.board) {
             navigate(`/board/${encodeURIComponent(s.board)}`);
@@ -88,12 +110,7 @@ const Home: React.FC = () => {
 
       <PageContainer
         header={{ title: "Welcome to the PiBitStream" }}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          minHeight: 0,
-        }}
+        style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
         token={{
           paddingBlockPageContainerContent: 16,
           paddingInlinePageContainerContent: 16,
@@ -111,32 +128,26 @@ const Home: React.FC = () => {
         >
           <Spin spinning={isLoading}>
             <ProCard
-              title={hasBoard ? "You have a board reserved" : "No board connected"}
+              title={hasActiveLease ? "You have a board reserved" : "No active board lease"}
               subTitle={
-                hasBoard
+                hasActiveLease
                   ? "You can open your board page to upload and flash bitstreams."
-                  : "You need to reserve a board to join the waitlist and start using PiBitStream."
+                  : "Your lease may have expired or been released by an admin. Reconnect to claim a board."
               }
               headerBordered
               bordered
               size="small"
               bodyStyle={{ padding: 16 }}
-              style={{ width: "100%", maxWidth: 640 }}
+              style={{ width: "100%", maxWidth: 750 }}
             >
-              <Space
-                direction="vertical"
-                size={12}
-                style={{ width: "100%", textAlign: "center" }}
-              >
-                {hasBoard ? (
+              <Space direction="vertical" size={12} style={{ width: "100%", textAlign: "center" }}>
+                {hasActiveLease ? (
                   <>
                     <Typography.Paragraph>
                       Board ID: <strong>{user!.board}</strong>
                     </Typography.Paragraph>
                     <Space>
-                      <Button onClick={handleConnectClick}>
-                        Change / reconnect to a different board
-                      </Button>
+                      <Button onClick={handleConnectClick}>Change / reconnect to a different board</Button>
                       <Button type="primary" onClick={handleOpenBoardPage}>
                         Open board page
                       </Button>
@@ -145,7 +156,6 @@ const Home: React.FC = () => {
                 ) : (
                   <>
                     <Typography.Paragraph>
-                      Your session may have expired, or you haven’t connected yet.
                       Use the button below to join the waitlist and claim a board.
                     </Typography.Paragraph>
                     <Button type="primary" onClick={handleConnectClick}>

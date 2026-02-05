@@ -412,8 +412,10 @@ class BoardManager {
 
   async rebootBoard(boardId) {
     const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
-    if (!row) {
-      throw new Error(`Board ${boardId} not found`);
+    if (!row) throw new Error(`Board ${boardId} not found`);
+
+    if (row.status === "FLASHING") {
+      throw new Error("Cannot reboot while flashing");
     }
 
     await this.programmer.rebootBoard(boardId);

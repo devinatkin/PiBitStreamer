@@ -5,18 +5,12 @@ const path = require("path");
 const auth = require("../middleware/auth");
 const createBoardsController = require("../controllers/boardsController");
 
-// 🔁 CHANGE THIS:
-/// const FakeProgrammer = require("../hardware/FakeProgrammer");
-// 👉 TO:
 const CmodA7Programmer = require("../hardware/CmodA7Programmer");
 
 const BoardManager = require("../services/BoardManager");
 
 // build everything here
 
-// 🔁 CHANGE THIS:
-// const programmer = new FakeProgrammer();
-// 👉 TO:
 const programmer = new CmodA7Programmer({
   // use "cmoda7_15t" if you have the 15T variant
   boardName: "cmoda7_15t",
