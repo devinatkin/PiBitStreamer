@@ -133,7 +133,8 @@ class BoardManager {
         parts;
       const product = productParts.join(" ");
 
-      const id = serial ? `CmodA7-${serial}` : `CmodA7-${bus}-${dev}`;
+      const safeProduct = product.replace(/\s+/g, "_");
+      const id = serial ? `${safeProduct}-${serial}` : `${safeProduct}-${bus}-${dev}`;
 
       boards.push({
         id,
@@ -162,6 +163,7 @@ class BoardManager {
    * - New boards -> insert with status READY
    * - Existing boards -> keep status/lease, just refresh HW metadata
    * - Retries up to 3 times with 2 second delay between attempts
+   * - NEW: prune stale boards (unplugged) via this._pruneStaleBoards(detectedIds)
    */
   async _syncBoardsFromHardware() {
     const maxRetries = 3;
@@ -170,17 +172,23 @@ class BoardManager {
 
     // Try up to 3 times to detect boards
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      console.log(`[BoardManager] Board detection attempt ${attempt}/${maxRetries}`);
-      
+      console.log(
+        `[BoardManager] Board detection attempt ${attempt}/${maxRetries}`
+      );
+
       detected = this._detectBoards();
 
       if (detected.length > 0) {
-        console.log(`[BoardManager] Successfully detected ${detected.length} board(s) on attempt ${attempt}`);
+        console.log(
+          `[BoardManager] Successfully detected ${detected.length} board(s) on attempt ${attempt}`
+        );
         break;
       }
 
       if (attempt < maxRetries) {
-        console.log(`[BoardManager] No boards detected, waiting ${retryDelay}ms before retry...`);
+        console.log(
+          `[BoardManager] No boards detected, waiting ${retryDelay}ms before retry...`
+        );
         await sleep(retryDelay);
       }
     }
@@ -189,13 +197,19 @@ class BoardManager {
       console.warn(
         "[BoardManager] No hardware boards detected after 3 attempts. /api/boards will be empty until something is plugged in."
       );
+
+      // Optional behavior:
+      // If you want to prune everything when nothing is connected, uncomment:
+      // await this._pruneStaleBoards(new Set());
+
       return;
     }
 
+    // NEW: track currently detected IDs for pruning
+    const detectedIds = new Set(detected.map((b) => b.id));
+
     for (const b of detected) {
-      const existing = await dbGet("SELECT * FROM boards WHERE id = ?", [
-        b.id,
-      ]);
+      const existing = await dbGet("SELECT * FROM boards WHERE id = ?", [b.id]);
 
       if (!existing) {
         await dbRun(
@@ -218,8 +232,8 @@ class BoardManager {
         // keep status/lease, just refresh hardware metadata
         await dbRun(
           `UPDATE boards SET
-             bus = ?, dev = ?, vidpid = ?, probe_type = ?, manufacturer = ?, serial = ?, product = ?
-           WHERE id = ?`,
+            bus = ?, dev = ?, vidpid = ?, probe_type = ?, manufacturer = ?, serial = ?, product = ?
+          WHERE id = ?`,
           [
             b.hw.bus,
             b.hw.dev,
@@ -231,9 +245,22 @@ class BoardManager {
             b.id,
           ]
         );
+
+        // Optional nice-to-have:
+        // if board was previously DISCONNECTED and is now present again, restore READY
+        if (existing.status === "DISCONNECTED") {
+          await dbRun(
+            `UPDATE boards SET status = 'READY', last_error = NULL WHERE id = ?`,
+            [b.id]
+          );
+        }
       }
     }
+
+    // NEW: remove / mark boards that are no longer detected
+    await this._pruneStaleBoards(detectedIds);
   }
+
 
   async _checkLeases() {
     const now = Date.now();
@@ -409,6 +436,47 @@ class BoardManager {
     ]);
     return rowToBoard(updated);
   }
+
+  async _pruneStaleBoards(detectedIds) {
+    // detectedIds = Set of ids currently present
+    const rows = await dbAll("SELECT id, status, userid FROM boards", []);
+
+    for (const r of rows) {
+      if (detectedIds.has(r.id)) continue;
+
+      // Board not detected anymore
+      // Safer policy:
+      if (r.status === "READY") {
+        console.log(`[BoardManager] Deleting stale board ${r.id} (was READY, now unplugged)`);
+
+        // Clear user pointer if any (shouldn't happen for READY, but safe)
+        if (r.userid) {
+          await dbRun(`UPDATE users SET current_board_id = NULL WHERE id = ?`, [r.userid]);
+        }
+
+        await dbRun(`DELETE FROM boards WHERE id = ?`, [r.id]);
+      } else {
+        // Don't delete if it was leased/active; mark as DISCONNECTED so UI/admin can see it
+        console.warn(
+          `[BoardManager] Board ${r.id} missing from hardware but status=${r.status}; marking DISCONNECTED`
+        );
+
+        await dbRun(
+          `UPDATE boards
+          SET status = 'DISCONNECTED',
+              last_error = COALESCE(last_error, 'Board unplugged or not detected'),
+              lease_until = NULL
+          WHERE id = ?`,
+          [r.id]
+        );
+
+        if (r.userid) {
+          await dbRun(`UPDATE users SET current_board_id = NULL WHERE id = ?`, [r.userid]);
+        }
+      }
+    }
+  }
+
 
   async rebootBoard(boardId) {
     const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);

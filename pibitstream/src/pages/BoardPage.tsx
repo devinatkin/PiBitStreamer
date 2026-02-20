@@ -1,16 +1,16 @@
 // src/pages/BoardPage.tsx
 import { PageContainer, ProCard } from "@ant-design/pro-components";
 import {
-    Badge,
-    Button,
-    message,
-    Modal,
-    Space,
-    Spin,
-    Statistic,
-    Tag,
-    Tooltip,
-    Typography,
+  Badge,
+  Button,
+  message,
+  Modal,
+  Space,
+  Spin,
+  Statistic,
+  Tag,
+  Tooltip,
+  Typography,
 } from "antd";
 import React, { useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -18,14 +18,15 @@ import { useAppDispatch, useAppSelector } from "../app/hooks";
 import UploadCard from "../components/UploadCard";
 import type { BoardType } from "../features/boards/boardsService";
 import {
-    fetchBoards,
-    flashBoard,
-    releaseBoard,
-    uploadBitstream,
+  fetchBoards,
+  flashBoard,
+  releaseBoard,
+  uploadBitstream,
 } from "../features/boards/boardsSlice";
 import {
-    setUser,
-    type StudentUser,
+  hydrateFromStorage,
+  setUser,
+  type StudentUser,
 } from "../features/user/userSlice";
 
 type BoardStatus = "ready" | "busy" | "flashing" | "error";
@@ -57,6 +58,10 @@ const BoardPage: React.FC = () => {
       dispatch(fetchBoards());
     }
   }, [dispatch, boards.length]);
+
+  useEffect(() => {
+    dispatch(hydrateFromStorage());
+  }, [dispatch]);
 
   const myBoard: BoardType | null = useMemo(() => {
     if (!boardIdParam) return null;

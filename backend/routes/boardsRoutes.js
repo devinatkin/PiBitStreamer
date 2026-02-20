@@ -5,16 +5,14 @@ const path = require("path");
 const auth = require("../middleware/auth");
 const createBoardsController = require("../controllers/boardsController");
 
-const CmodA7Programmer = require("../hardware/CmodA7Programmer");
-
 const BoardManager = require("../services/BoardManager");
+const OpenFPGABoardProgrammer = require("../hardware/OpenFPGABoardProgrammer");
 
-// build everything here
-
-const programmer = new CmodA7Programmer({
-  // use "cmoda7_15t" if you have the 15T variant
-  boardName: "cmoda7_15t",
-  // openFPGALoaderBin: "/usr/local/bin/openFPGALoader", // only if not in PATH
+const programmer = new OpenFPGABoardProgrammer({
+  boardName: "cmoda7_35t",
+  cable: "digilent",
+  // optional if you ever need it:
+  // ftdiChannels: [0, 1],
 });
 
 const boardManager = new BoardManager(programmer);
