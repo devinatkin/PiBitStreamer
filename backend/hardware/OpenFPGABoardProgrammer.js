@@ -12,17 +12,20 @@ const dbGet = (sql, params = []) =>
 /**
  * OpenFPGABoardProgrammer
  *
- * Uses openFPGALoader to program/reboot a specific FTDI probe.
+ * SRAM-only programming:
+ * - We ONLY load bitstreams into FPGA SRAM via JTAG (NO SPI flash writes).
+ * - This means designs are NOT persistent across power cycles/unplug.
+ *
  * IMPORTANT: with multiple FTDI2232 devices connected, we MUST pin the target:
  *   - Prefer: --ftdi-serial <serial>   (stable)
  *   - Fallback: --busdev-num <bus:dev> (can change after replug/reboot)
  */
 class OpenFPGABoardProgrammer {
   constructor(options = {}) {
-    this.status = {}; // boardId -> 'IDLE' | 'FLASHING' | 'OK' | 'ERROR' | 'REBOOTING'
+    this.status = {}; // boardId -> 'IDLE' | 'PROGRAMMING' | 'OK' | 'ERROR' | 'REBOOTING'
 
-    // openFPGALoader board profile name (e.g. "cmoda7_15t")
-    this.boardName = options.boardName || "cmoda7_15t";
+    // openFPGALoader board profile name (e.g. "cmoda7_35t")
+    this.boardName = options.boardName || "cmoda7_35t";
 
     // openFPGALoader binary
     this.openFPGALoaderBin = options.openFPGALoaderBin || "openFPGALoader";
@@ -31,7 +34,6 @@ class OpenFPGABoardProgrammer {
     this.cable = options.cable || "digilent";
 
     // Optional: try FTDI channels in order (0=A, 1=B, etc.)
-    // If you don't need this, set options.ftdiChannels = null (or [])
     this.ftdiChannels =
       options.ftdiChannels === undefined ? null : options.ftdiChannels;
   }
@@ -47,12 +49,10 @@ class OpenFPGABoardProgrammer {
     );
     if (!row) throw new Error(`Board ${boardId} not found`);
 
-    // Prefer stable selector:
     if (row.serial) {
       return { kind: "serial", value: String(row.serial).trim() };
     }
 
-    // Fallback
     if (row.bus && row.dev) {
       return { kind: "busdev", value: `${row.bus}:${row.dev}` };
     }
@@ -103,14 +103,15 @@ class OpenFPGABoardProgrammer {
   }
 
   /**
-   * Flash / program bitstream.
+   * Program bitstream into SRAM (JTAG).
    *
-   * Default: flash=true means program SPI flash (-f) and reset (-r)
-   * If you want SRAM-only programming, call flashBitstream(boardId, bitPath, { flash: false })
+   * NOTE:
+   * - Accepts .bit (and sometimes .bin also works for SRAM, but .bit is expected)
+   * - Does NOT write SPI flash, does NOT include -f
    */
-  async flashBitstream(boardId, bitPath, { flash = true } = {}) {
-    console.log(`[OpenFPGA] Programming ${bitPath} -> ${boardId}...`);
-    this._setStatus(boardId, "FLASHING");
+  async flashBitstream(boardId, bitPath) {
+    console.log(`[OpenFPGA] SRAM programming ${bitPath} -> ${boardId}...`);
+    this._setStatus(boardId, "PROGRAMMING");
 
     const absBitPath = path.resolve(bitPath);
     const sel = await this._getHwSelector(boardId);
@@ -120,11 +121,9 @@ class OpenFPGABoardProgrammer {
     if (sel.kind === "serial") base.push("--ftdi-serial", sel.value);
     else base.push("--busdev-num", sel.value);
 
-    // openFPGALoader args:
-    //   openFPGALoader [selector] -b <board> (-f -r)? <bit>
-    const programArgs = ["-b", this.boardName];
-    if (flash) programArgs.push("-f", "-r");
-    programArgs.push(absBitPath);
+    // SRAM program only:
+    //   openFPGALoader [selector] -b <board> <bit>
+    const programArgs = ["-b", this.boardName, absBitPath];
 
     // If channels not provided, just run once
     if (!Array.isArray(this.ftdiChannels) || this.ftdiChannels.length === 0) {
@@ -132,7 +131,7 @@ class OpenFPGABoardProgrammer {
       console.log(`[OpenFPGA] CMD: ${this.openFPGALoaderBin} ${args.join(" ")}`);
       try {
         await this._runOpenFPGALoader(boardId, args);
-        console.log(`[OpenFPGA] Program of ${boardId} completed successfully`);
+        console.log(`[OpenFPGA] SRAM program of ${boardId} completed successfully`);
         this._setStatus(boardId, "OK");
         return;
       } catch (err) {
@@ -153,7 +152,7 @@ class OpenFPGABoardProgrammer {
       try {
         await this._runOpenFPGALoader(boardId, args);
         console.log(
-          `[OpenFPGA] Program of ${boardId} completed successfully (channel=${ch})`
+          `[OpenFPGA] SRAM program of ${boardId} completed successfully (channel=${ch})`
         );
         this._setStatus(boardId, "OK");
         return;
@@ -162,18 +161,19 @@ class OpenFPGABoardProgrammer {
       }
     }
 
-    console.error(`[OpenFPGA] Program failed for ${boardId} after channel tries`);
+    console.error(`[OpenFPGA] SRAM program failed for ${boardId} after channel tries`);
     this._setStatus(boardId, "ERROR");
     throw lastErr || new Error("openFPGALoader failed");
   }
 
   /**
-   * Reboot/reset a board by running detect + reset (-r) against the pinned probe.
+   * Reboot/reset a board.
+   *
+   * For SRAM-only mode, "reboot" generally just resets the FPGA
+   * (and will CLEAR the programmed design if it causes a reconfigure).
    *
    * Equivalent CLI:
    *   openFPGALoader --ftdi-serial <serial> --cable digilent --detect -r
-   * or
-   *   openFPGALoader --busdev-num <bus:dev> --cable digilent --detect -r
    */
   async rebootBoard(boardId) {
     const sel = await this._getHwSelector(boardId);
@@ -182,12 +182,12 @@ class OpenFPGABoardProgrammer {
     if (sel.kind === "serial") base.push("--ftdi-serial", sel.value);
     else base.push("--busdev-num", sel.value);
 
-    const rebootArgs = ["--detect", "-r"];
+    // Use -b to target the correct board profile, -r to reset
+    const rebootArgs = ["-b", this.boardName, "-r"];
 
     console.log(`[OpenFPGA] Rebooting ${boardId} via openFPGALoader...`);
     this._setStatus(boardId, "REBOOTING");
 
-    // Same channel logic as programming (if configured)
     if (!Array.isArray(this.ftdiChannels) || this.ftdiChannels.length === 0) {
       const args = [...base, ...rebootArgs];
       console.log(`[OpenFPGA] CMD: ${this.openFPGALoaderBin} ${args.join(" ")}`);
@@ -205,16 +205,10 @@ class OpenFPGABoardProgrammer {
     let lastErr = null;
     for (const ch of this.ftdiChannels) {
       const args = [...base, "--ftdi-channel", String(ch), ...rebootArgs];
-      console.log(
-        `[OpenFPGA] CMD: ${this.openFPGALoaderBin} ${args.join(
-          " "
-        )} (channel=${ch})`
-      );
+      console.log(`[OpenFPGA] CMD: ${this.openFPGALoaderBin} ${args.join(" ")} (channel=${ch})`);
       try {
         await this._runOpenFPGALoader(boardId, args, { timeoutMs: 30000 });
-        console.log(
-          `[OpenFPGA] Reboot of ${boardId} completed successfully (channel=${ch})`
-        );
+        console.log(`[OpenFPGA] Reboot of ${boardId} completed successfully (channel=${ch})`);
         this._setStatus(boardId, "IDLE");
         return;
       } catch (err) {

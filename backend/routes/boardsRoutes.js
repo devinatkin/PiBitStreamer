@@ -18,8 +18,17 @@ const programmer = new OpenFPGABoardProgrammer({
 const boardManager = new BoardManager(programmer);
 const controller = createBoardsController(boardManager);
 
+const storage = multer.diskStorage({
+  destination: path.join(__dirname, "..", "uploads"),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    cb(null, `${unique}${ext}`);
+  },
+});
+
 const upload = multer({
-  dest: path.join(__dirname, "..", "uploads"),
+  storage,  // <-- replaces `dest`
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = [".bit", ".svf", ".sv"];

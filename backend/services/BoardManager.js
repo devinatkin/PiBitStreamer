@@ -291,43 +291,40 @@ class BoardManager {
 
   async claimBoard(id, { userid, ip, leaseMinutes = 30 }) {
     const user = await dbGet("SELECT * FROM users WHERE id = ?", [userid]);
-    if (!user) {
-      throw new Error("User not registered");
-    }
+    if (!user) throw new Error("User not registered");
 
     const row = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
     if (!row) throw new Error(`Board ${id} not found`);
-    if (row.status !== "READY") throw new Error(`Board ${id} is not available`);
 
     // Optional: enforce 1 board per user
     const other = await dbGet(
       "SELECT * FROM boards WHERE userid = ? AND id <> ?",
       [userid, id]
     );
-    if (other) {
-      throw new Error("User already has a board reserved");
-    }
+    if (other) throw new Error("User already has a board reserved");
 
     const now = Date.now();
-    const leaseMs = leaseMinutes * 60 * 1000;
-    const leaseUntil = now + leaseMs;
+    const leaseUntil = now + leaseMinutes * 60 * 1000;
 
-    await dbRun(
+    // Atomic claim: only succeeds if status is still READY at write time
+    const result = await dbRun(
       `UPDATE boards
-       SET status = 'BUSY',
-           userid = ?,
-           ip = ?,
-           lease_since = ?,
-           lease_until = ?,
-           last_error = NULL
-       WHERE id = ?`,
+      SET status = 'BUSY',
+          userid = ?,
+          ip = ?,
+          lease_since = ?,
+          lease_until = ?,
+          last_error = NULL
+      WHERE id = ? AND status = 'READY'`,
       [userid, ip, now, leaseUntil, id]
     );
 
-    await dbRun(
-      `UPDATE users SET current_board_id = ? WHERE id = ?`,
-      [id, userid]
-    );
+    // result.changes === 0 means someone else claimed it between our SELECT and UPDATE
+    if (result.changes === 0) {
+      throw new Error(`Board ${id} is not available`);
+    }
+
+    await dbRun(`UPDATE users SET current_board_id = ? WHERE id = ?`, [id, userid]);
 
     const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [id]);
     return rowToBoard(updated);
@@ -400,16 +397,11 @@ class BoardManager {
 
   async flashBoard(boardId, jobId) {
     const row = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
-    if (!row) {
-      throw new Error(`Board ${boardId} not found`);
-    }
+    if (!row) throw new Error(`Board ${boardId} not found`);
 
     const job = this.jobs[jobId];
-    if (!job || job.boardId !== boardId) {
-      throw new Error("Job not found for this board");
-    }
+    if (!job || job.boardId !== boardId) throw new Error("Job not found for this board");
 
-    // mark as FLASHING
     await dbRun(
       `UPDATE boards SET status = 'FLASHING', last_error = NULL WHERE id = ?`,
       [boardId]
@@ -418,8 +410,9 @@ class BoardManager {
     try {
       await this.programmer.flashBitstream(boardId, job.filePath);
 
+      // Stay BUSY — board is still leased to the user, not available for others
       await dbRun(
-        `UPDATE boards SET status = 'READY' WHERE id = ?`,
+        `UPDATE boards SET status = 'BUSY', last_error = NULL WHERE id = ?`,
         [boardId]
       );
     } catch (err) {
@@ -431,9 +424,7 @@ class BoardManager {
       throw err;
     }
 
-    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [
-      boardId,
-    ]);
+    const updated = await dbGet("SELECT * FROM boards WHERE id = ?", [boardId]);
     return rowToBoard(updated);
   }
 
