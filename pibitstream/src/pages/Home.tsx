@@ -69,8 +69,10 @@ const Home: React.FC = () => {
       return;
     }
 
+    // Don't act until we have fresh data from the server
+    if (isLoading || !boards.length) return;
+
     if (hasStaleSavedBoard) {
-      // Show a warning once
       if (!warnedStaleRef.current) {
         warnedStaleRef.current = true;
         message.warning("Your board lease is no longer active. Please reconnect to claim a board again.");
@@ -79,7 +81,7 @@ const Home: React.FC = () => {
       const cleared: StudentUser = { ...user, board: null };
       dispatch(setUser(cleared));
     }
-  }, [hasStaleSavedBoard, user, dispatch]);
+  }, [hasStaleSavedBoard, isLoading, boards.length, user, dispatch]);
 
   const handleConnectClick = () => {
     const cleared: StudentUser | null = user ? { ...user, board: null } : null;
